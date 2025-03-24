@@ -1,0 +1,25 @@
+<?php
+$translate = $this->plugin('translate');
+$url = $this->url(null, [], true);
+$queryParams = $this->params()->fromQuery();
+?>
+
+<div class="date-range-active-filters">
+    <h4><?php echo $translate('Active Filters'); ?></h4>
+    <ul class="active-filters">
+        <li class="active-filter">
+            <?php echo $translate('Date Range'); ?>: <?php echo $dateStart; ?> - <?php echo $dateEnd; ?>
+            <?php
+            // Create URL without date range parameters
+            $newParams = $queryParams;
+            unset($newParams['date_start']);
+            unset($newParams['date_end']);
+            $resetUrl = $url . '?' . http_build_query($newParams);
+            if (count($newParams) === 0) {
+                $resetUrl = $url;
+            }
+            ?>
+            <a href="<?php echo $resetUrl; ?>" class="remove-filter" aria-label="<?php echo $translate('Remove date range filter'); ?>">×</a>
+        </li>
+    </ul>
+</div>

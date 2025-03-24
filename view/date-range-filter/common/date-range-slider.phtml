@@ -1,0 +1,52 @@
+<?php
+$translate = $this->plugin('translate');
+?>
+<div class="date-range-filter">
+    <h4><?php echo $translate('Date Range'); ?></h4>
+    <div id="date-range-slider"></div>
+    <div class="date-range-inputs">
+        <form id="date-range-form" method="get">
+            <div class="date-range-values">
+                <span id="date-start-display"><?php echo $startYear; ?></span>
+                <span><?php echo $translate('to'); ?></span>
+                <span id="date-end-display"><?php echo $endYear; ?></span>
+            </div>
+            
+            <?php 
+            // Preserve existing query parameters
+            foreach ($this->params()->fromQuery() as $key => $value):
+                if ($key != 'date_start' && $key != 'date_end'):
+            ?>
+                <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>" value="<?php echo $this->escapeHtml($value); ?>">
+            <?php 
+                endif;
+            endforeach;
+            ?>
+            
+            <input type="hidden" id="date-start" name="date_start" value="<?php echo $startYear; ?>">
+            <input type="hidden" id="date-end" name="date_end" value="<?php echo $endYear; ?>">
+            
+            <div class="date-range-buttons">
+                <button type="submit" class="apply-date-range"><?php echo $translate('Apply'); ?></button>
+                <button type="button" class="reset-date-range"><?php echo $translate('Reset'); ?></button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<?php $this->headLink()->appendStylesheet($this->assetUrl('css/date-range-slider.css', 'SearchFilterPlus')); ?>
+<?php $this->headScript()->appendFile($this->assetUrl('js/date-range-slider.js', 'SearchFilterPlus')); ?>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initDateRangeSlider(
+        <?php echo json_encode([
+            'minYear' => $minYear,
+            'maxYear' => $maxYear,
+            'startYear' => $startYear,
+            'endYear' => $endYear,
+            'autoSubmit' => true,
+        ]); ?>
+    );
+});
+</script>
