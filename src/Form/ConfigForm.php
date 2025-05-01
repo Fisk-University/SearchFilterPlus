@@ -9,11 +9,6 @@ class ConfigForm extends Form
 {
     public function init()
     {
-        // Set up an element group called "date_range" with a label "Date Range Slider"
-        $this->setOption('element_groups', [
-            'date_range' => 'Date Range Slider', // @translate
-        ]);
-        
         $this->add([
             'name' => 'daterange_filter_min_year',
             'type' => Number::class,
