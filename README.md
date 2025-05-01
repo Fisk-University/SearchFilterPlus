@@ -1,0 +1,3 @@
+# In Progress
+
+SearchFilterPlus is a custom Omeka S module that enhances core search and browse functionality by injecting user-friendly filtering components into the browse page(s). It enables advanced filtering mechanisms—such as dropdowns, keyword fields, and range inputs—without overriding core templates. The module integrates with Omeka S’s event system to dynamically render filters, interpret search parameters, and update results based on user selections. Built for extensibility, it serves as the foundation for pluggable UI filters, including the upcoming DateRangeFilter integration.
