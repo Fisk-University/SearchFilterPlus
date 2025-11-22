@@ -17,31 +17,11 @@ class Module extends AbstractModule
 
     public function attachListeners(SharedEventManagerInterface $sharedEventManager)
     {
-        // Add date range filter to browse views
-        $sharedEventManager->attach(
-            'Omeka\Controller\Site\Item',
-            'view.browse.before',
-            [$this, 'addDateRangeFilter']
-        );
-        
         // Modify search query to handle date range
         $sharedEventManager->attach(
             'Omeka\Api\Adapter\ItemAdapter',
             'api.search.query',
             [$this, 'handleDateRangeQuery']
-        );
-        
-        // Add active filters display
-        $sharedEventManager->attach(
-            'Omeka\Controller\Site\Item',
-            'view.browse.after',
-            [$this, 'displayActiveFilters']
-        );
-
-        $sharedEventManager->attach(
-            'Omeka\Controller\Site\Item',
-            'view.layout',
-            [$this, 'addThemeStyles']
         );
     }
 
@@ -86,32 +66,6 @@ class Module extends AbstractModule
         return true;
     }
 
-    public function addDateRangeFilter(Event $event)
-    {
-        $view = $event->getTarget();
-        $services = $this->getServiceLocator();
-        $settings = $services->get('Omeka\Settings');
-        
-        $minYear = $settings->get('daterange_filter_min_year', 1910);
-        $maxYear = $settings->get('daterange_filter_max_year', 1950);
-        $property = $settings->get('daterange_filter_property', 'dcterms:date');
-        
-        // Get current filter values if set
-        $query = $view->params()->fromQuery();
-        $startYear = isset($query['date_start']) ? $query['date_start'] : $minYear;
-        $endYear = isset($query['date_end']) ? $query['date_end'] : $maxYear;
-        
-        $vars = [
-            'minYear' => $minYear,
-            'maxYear' => $maxYear,
-            'startYear' => $startYear,
-            'endYear' => $endYear,
-            'property' => $property,
-        ];
-        
-        echo $view->partial('date-range-filter/common/date-range-slider', $vars);
-    }
-
     public function handleDateRangeQuery(Event $event)
     {
         $query = $event->getParam('request')->getContent();
@@ -122,46 +76,57 @@ class Module extends AbstractModule
             $dateStart = (int) $query['date_start'];
             $dateEnd = (int) $query['date_end'];
             
+            // Implementation that filters by date property
+            // This will work for items that have dcterms:date values
+            
+            // Get the property ID for dcterms:date
             $services = $this->getServiceLocator();
-            $dateRangeHandler = $services->get('SearchFilterPlus\DateRangeHandler');
+            $settings = $services->get('Omeka\Settings');
+            $propertyTerm = $settings->get('daterange_filter_property', 'dcterms:date');
             
-            // Apply the date range filter
-            $dateRangeHandler->applyDateRangeFilter($queryBuilder, $dateStart, $dateEnd);
-        }
-    }
-
-    public function displayActiveFilters(Event $event)
-    {
-        $view = $event->getTarget();
-        $query = $view->params()->fromQuery();
-        
-        // Check if date range filter is active
-        if (isset($query['date_start']) && isset($query['date_end'])) {
-            $vars = [
-                'dateStart' => $query['date_start'],
-                'dateEnd' => $query['date_end'],
-            ];
+            // Get the property from the API
+            $api = $services->get('Omeka\ApiManager');
             
-            echo $view->partial('date-range-filter/common/active-filters', $vars);
-        }
-    }
-    public function addThemeStyles(Event $event)
-    {
-        $view = $event->getTarget();
-        
-        // Check if we're on a browse or search page
-        $params = $view->params();
-        $routeName = $params->fromRoute('__ROUTE__');
-        
-        if (strpos($routeName, 'site/item') !== false) {
-            // Check if search-page.css exists in the active theme
-            $theme = $view->site()->theme();
-            $assetUrl = $view->plugin('assetUrl');
-            
-            // Check if theme has search-page.css
-            $themeCssPath = "themes/$theme/asset/css/search-page.css";
-            if (file_exists(OMEKA_PATH . "/themes/$theme/asset/css/search-page.css")) {
-                $view->headLink()->appendStylesheet($assetUrl('css/search-page.css'));
+            try {
+                // Search for the property by term
+                $response = $api->search('properties', [
+                    'term' => $propertyTerm,
+                    'limit' => 1
+                ]);
+                
+                $properties = $response->getContent();
+                
+                if (!empty($properties)) {
+                    $property = $properties[0];
+                    $propertyId = $property->id();
+                    
+                    // Create an alias for the values join
+                    $alias = 'date_filter_' . uniqid();
+                    
+                    // Join with values table
+                    $queryBuilder->leftJoin(
+                        'omeka_root.values',
+                        $alias,
+                        'WITH',
+                        $queryBuilder->expr()->eq($alias . '.property', $propertyId)
+                    );
+                    
+                    // Create date range conditions
+                    // This handles simple year values (YYYY)
+                    $dateExpr = $queryBuilder->expr()->andX(
+                        $queryBuilder->expr()->isNotNull($alias . '.value'),
+                        $queryBuilder->expr()->gte($alias . '.value', ':date_start'),
+                        $queryBuilder->expr()->lte($alias . '.value', ':date_end')
+                    );
+                    
+                    $queryBuilder->andWhere($dateExpr)
+                        ->setParameter('date_start', (string) $dateStart)
+                        ->setParameter('date_end', (string) $dateEnd);
+                }
+                
+            } catch (\Exception $e) {
+                // If there's an error getting the property
+                error_log('Date filter error: ' . $e->getMessage());
             }
         }
     }
