@@ -83,6 +83,11 @@ class Module extends AbstractModule
         if (isset($query['file_type']) && !empty($query['file_type'])) {
             $this->applyFileTypeFilter($queryBuilder, $query);
         }
+        
+        // Apply collection filter if present
+        if (isset($query['collection']) && !empty($query['collection'])) {
+            $this->applyCollectionFilter($queryBuilder, $query);
+        }
     }
     
     /**
@@ -192,6 +197,40 @@ class Module extends AbstractModule
         if (!empty($conditions)) {
             $queryBuilder->andWhere($queryBuilder->expr()->orX(...$conditions));
             // Group by item ID to prevent duplicates
+            $queryBuilder->groupBy('omeka_root.id');
+        }
+    }
+    
+    /**
+     * Apply collection filter
+     */
+    protected function applyCollectionFilter($queryBuilder, $query)
+    {
+        $collections = $query['collection'];
+        if (!is_array($collections)) {
+            $collections = [$collections];
+        }
+        
+        // Join with item_sets through relationship
+        $collectionAlias = 'collection_filter';
+        
+        $queryBuilder->innerJoin(
+            'omeka_root.itemSets',
+            $collectionAlias
+        );
+        
+        // Build conditions for selected collections
+        $conditions = [];
+        $paramCount = 0;
+        
+        foreach ($collections as $collectionId) {
+            $paramName = 'collection_' . $paramCount++;
+            $conditions[] = $queryBuilder->expr()->eq($collectionAlias . '.id', ':' . $paramName);
+            $queryBuilder->setParameter($paramName, (int)$collectionId);
+        }
+        
+        if (!empty($conditions)) {
+            $queryBuilder->andWhere($queryBuilder->expr()->orX(...$conditions));
             $queryBuilder->groupBy('omeka_root.id');
         }
     }
