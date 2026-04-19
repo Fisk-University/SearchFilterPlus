@@ -17,31 +17,11 @@ class Module extends AbstractModule
 
     public function attachListeners(SharedEventManagerInterface $sharedEventManager)
     {
-        // Add date range filter to browse views
-        $sharedEventManager->attach(
-            'Omeka\Controller\Site\Item',
-            'view.browse.before',
-            [$this, 'addDateRangeFilter']
-        );
-        
-        // Modify search query to handle date range
+        // Both filters attach to the same event and work together
         $sharedEventManager->attach(
             'Omeka\Api\Adapter\ItemAdapter',
             'api.search.query',
-            [$this, 'handleDateRangeQuery']
-        );
-        
-        // Add active filters display
-        $sharedEventManager->attach(
-            'Omeka\Controller\Site\Item',
-            'view.browse.after',
-            [$this, 'displayActiveFilters']
-        );
-
-        $sharedEventManager->attach(
-            'Omeka\Controller\Site\Item',
-            'view.layout',
-            [$this, 'addThemeStyles']
+            [$this, 'handleFilters']
         );
     }
 
@@ -86,83 +66,172 @@ class Module extends AbstractModule
         return true;
     }
 
-    public function addDateRangeFilter(Event $event)
-    {
-        $view = $event->getTarget();
-        $services = $this->getServiceLocator();
-        $settings = $services->get('Omeka\Settings');
-        
-        $minYear = $settings->get('daterange_filter_min_year', 1910);
-        $maxYear = $settings->get('daterange_filter_max_year', 1950);
-        $property = $settings->get('daterange_filter_property', 'dcterms:date');
-        
-        // Get current filter values if set
-        $query = $view->params()->fromQuery();
-        $startYear = isset($query['date_start']) ? $query['date_start'] : $minYear;
-        $endYear = isset($query['date_end']) ? $query['date_end'] : $maxYear;
-        
-        $vars = [
-            'minYear' => $minYear,
-            'maxYear' => $maxYear,
-            'startYear' => $startYear,
-            'endYear' => $endYear,
-            'property' => $property,
-        ];
-        
-        echo $view->partial('date-range-filter/common/date-range-slider', $vars);
-    }
-
-    public function handleDateRangeQuery(Event $event)
+    /**
+     * Handle both date range and file type filters in one method
+     */
+    public function handleFilters(Event $event)
     {
         $query = $event->getParam('request')->getContent();
         $queryBuilder = $event->getParam('queryBuilder');
         
-        // Check if date range filter is active
+        // Apply date range filter if present
         if (isset($query['date_start']) && isset($query['date_end'])) {
-            $dateStart = (int) $query['date_start'];
-            $dateEnd = (int) $query['date_end'];
-            
-            $services = $this->getServiceLocator();
-            $dateRangeHandler = $services->get('SearchFilterPlus\DateRangeHandler');
-            
-            // Apply the date range filter
-            $dateRangeHandler->applyDateRangeFilter($queryBuilder, $dateStart, $dateEnd);
+            $this->applyDateRangeFilter($queryBuilder, $query);
+        }
+        
+        // Apply file type filter if present
+        if (isset($query['file_type']) && !empty($query['file_type'])) {
+            $this->applyFileTypeFilter($queryBuilder, $query);
+        }
+        
+        // Apply collection filter if present
+        if (isset($query['collection']) && !empty($query['collection'])) {
+            $this->applyCollectionFilter($queryBuilder, $query);
         }
     }
+    
+    /**
+     * Apply date range filter
+     */
+    protected function applyDateRangeFilter($queryBuilder, $query)
+    {
+        $dateStart = (int) $query['date_start'];
+        $dateEnd = (int) $query['date_end'];
+        
+            // Implementation that filters by date property
+            // This will work for items that have dcterms:date values
 
-    public function displayActiveFilters(Event $event)
-    {
-        $view = $event->getTarget();
-        $query = $view->params()->fromQuery();
+            // Get the property ID for dcterms:date
+        $services = $this->getServiceLocator();
+        $settings = $services->get('Omeka\Settings');
+        $propertyTerm = $settings->get('daterange_filter_property', 'dcterms:date');
         
-        // Check if date range filter is active
-        if (isset($query['date_start']) && isset($query['date_end'])) {
-            $vars = [
-                'dateStart' => $query['date_start'],
-                'dateEnd' => $query['date_end'],
-            ];
+        // Get the property from the API
+        $api = $services->get('Omeka\ApiManager');
+        
+        try {
+            // Search for the property by term
+            $response = $api->search('properties', [
+                'term' => $propertyTerm,
+                'limit' => 1
+            ]);
             
-            echo $view->partial('date-range-filter/common/active-filters', $vars);
+            $properties = $response->getContent();
+            
+            if (!empty($properties)) {
+                $property = $properties[0];
+                $propertyId = $property->id();
+                
+                // Create an alias for the values join
+                $alias = 'date_filter';
+                
+                 // Join with values table
+                $queryBuilder->leftJoin(
+                    'omeka_root.values',
+                    $alias,
+                    'WITH',
+                    $queryBuilder->expr()->eq($alias . '.property', $propertyId)
+                );
+
+                // Create date range conditions
+                // This handles simple year values (YYYY)
+                $dateExpr = $queryBuilder->expr()->andX(
+                    $queryBuilder->expr()->isNotNull($alias . '.value'),
+                    $queryBuilder->expr()->gte($alias . '.value', ':date_start'),
+                    $queryBuilder->expr()->lte($alias . '.value', ':date_end')
+                );
+                
+                $queryBuilder->andWhere($dateExpr)
+                    ->setParameter('date_start', (string) $dateStart)
+                    ->setParameter('date_end', (string) $dateEnd);
+            }
+            
+        } catch (\Exception $e) {
+            // If there's an error getting the property
+            error_log('Date filter error: ' . $e->getMessage());
         }
     }
-    public function addThemeStyles(Event $event)
+    
+    /**
+     * Apply file type filter
+     */
+    protected function applyFileTypeFilter($queryBuilder, $query)
     {
-        $view = $event->getTarget();
+        $fileTypes = $query['file_type'];
+        if (!is_array($fileTypes)) {
+            $fileTypes = [$fileTypes];
+        }
         
-        // Check if we're on a browse or search page
-        $params = $view->params();
-        $routeName = $params->fromRoute('__ROUTE__');
+        // Check if we already joined media table
+        $joins = $queryBuilder->getDQLPart('join');
+        $mediaAlias = null;
         
-        if (strpos($routeName, 'site/item') !== false) {
-            // Check if search-page.css exists in the active theme
-            $theme = $view->site()->theme();
-            $assetUrl = $view->plugin('assetUrl');
-            
-            // Check if theme has search-page.css
-            $themeCssPath = "themes/$theme/asset/css/search-page.css";
-            if (file_exists(OMEKA_PATH . "/themes/$theme/asset/css/search-page.css")) {
-                $view->headLink()->appendStylesheet($assetUrl('css/search-page.css'));
+        if (!empty($joins['omeka_root'])) {
+            foreach ($joins['omeka_root'] as $join) {
+                if (strpos($join->getJoin(), '.media') !== false) {
+                    $mediaAlias = $join->getAlias();
+                    break;
+                }
             }
+        }
+        
+        // Only join if not already joined
+        if (!$mediaAlias) {
+            $mediaAlias = 'media_filter';
+            $queryBuilder->innerJoin(
+                'omeka_root.media',  // Use the relationship, not the table
+                $mediaAlias
+            );
+        }
+        
+        // Build conditions for selected file types
+        $conditions = [];
+        $paramCount = 0;
+        
+        foreach ($fileTypes as $type) {
+            $paramName = 'file_type_' . $paramCount++;
+            $conditions[] = $queryBuilder->expr()->eq($mediaAlias . '.mediaType', ':' . $paramName);
+            $queryBuilder->setParameter($paramName, $type);
+        }
+        
+        if (!empty($conditions)) {
+            $queryBuilder->andWhere($queryBuilder->expr()->orX(...$conditions));
+            // Group by item ID to prevent duplicates
+            $queryBuilder->groupBy('omeka_root.id');
+        }
+    }
+    
+    /**
+     * Apply collection filter
+     */
+    protected function applyCollectionFilter($queryBuilder, $query)
+    {
+        $collections = $query['collection'];
+        if (!is_array($collections)) {
+            $collections = [$collections];
+        }
+        
+        // Join with item_sets through relationship
+        $collectionAlias = 'collection_filter';
+        
+        $queryBuilder->innerJoin(
+            'omeka_root.itemSets',
+            $collectionAlias
+        );
+        
+        // Build conditions for selected collections
+        $conditions = [];
+        $paramCount = 0;
+        
+        foreach ($collections as $collectionId) {
+            $paramName = 'collection_' . $paramCount++;
+            $conditions[] = $queryBuilder->expr()->eq($collectionAlias . '.id', ':' . $paramName);
+            $queryBuilder->setParameter($paramName, (int)$collectionId);
+        }
+        
+        if (!empty($conditions)) {
+            $queryBuilder->andWhere($queryBuilder->expr()->orX(...$conditions));
+            $queryBuilder->groupBy('omeka_root.id');
         }
     }
 }

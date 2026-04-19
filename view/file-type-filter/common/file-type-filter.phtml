@@ -1,0 +1,77 @@
+<?php
+$translate = $this->plugin('translate');
+
+// Get current values from URL if they exist
+$query = $this->params()->fromQuery();
+$selectedTypes = isset($query['file_type']) ? $query['file_type'] : [];
+if (!is_array($selectedTypes)) {
+    $selectedTypes = [$selectedTypes];
+}
+
+// Array of file types
+$fileTypes = [
+    ['media_type' => 'image/jpeg', 'label' => 'jpeg/jpg'],
+    ['media_type' => 'image/png', 'label' => 'png'],
+    ['media_type' => 'application/pdf', 'label' => 'pdf']
+];
+?>
+
+<div class="file-type-filter">
+    <h4><?php echo $translate('FILE TYPE'); ?></h4>
+    
+    <form id="file-type-form" method="get">
+        <div class="file-type-list">
+            <?php foreach ($fileTypes as $type): ?>
+                <label class="file-type-item">
+                    <input type="checkbox" 
+                           name="file_type[]" 
+                           value="<?php echo $this->escapeHtml($type['media_type']); ?>"
+                           <?php echo in_array($type['media_type'], $selectedTypes) ? 'checked' : ''; ?>>
+                    <span class="file-type-label">
+                        <?php echo $type['label']; ?> <br>
+                    </span>
+                </label>
+            <?php endforeach; ?>
+        </div>
+        
+        <?php 
+        // Preserve existing query parameters (date range, search terms, etc)
+        foreach ($this->params()->fromQuery() as $key => $value):
+            if ($key != 'file_type'):
+                if (is_array($value)):
+                    foreach ($value as $subKey => $subValue):
+                        if (is_array($subValue)):
+                            foreach ($subValue as $nestedKey => $nestedValue):
+                                if (!is_array($nestedValue)):
+        ?>
+        <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>[<?php echo $this->escapeHtml($subKey); ?>][<?php echo $this->escapeHtml($nestedKey); ?>]" value="<?php echo $this->escapeHtml($nestedValue); ?>">
+        <?php
+                                endif;
+                            endforeach;
+                        else:
+        ?>
+        <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>[<?php echo $this->escapeHtml($subKey); ?>]" value="<?php echo $this->escapeHtml($subValue); ?>">
+        <?php
+                        endif;
+                    endforeach;
+                else:
+        ?>
+        <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>" value="<?php echo $this->escapeHtml($value); ?>">
+        <?php
+                endif;
+            endif;
+        endforeach;
+        ?>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-submit on checkbox change
+    document.querySelectorAll('.file-type-item input[type="checkbox"]').forEach(function(checkbox) {
+        checkbox.addEventListener('change', function() {
+            document.getElementById('file-type-form').submit();
+        });
+    });
+});
+</script>

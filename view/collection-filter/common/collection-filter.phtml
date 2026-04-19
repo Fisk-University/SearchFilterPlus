@@ -1,0 +1,95 @@
+<?php
+$translate = $this->plugin('translate');
+
+// Get current values from URL if they exist
+$query = $this->params()->fromQuery();
+$selectedCollections = isset($query['collection']) ? $query['collection'] : [];
+if (!is_array($selectedCollections)) {
+    $selectedCollections = [$selectedCollections];
+}
+
+// Get ALL collections (item sets)
+$api = $this->api();
+$itemSets = $api->search('item_sets', ['sort_by' => 'created'])->getContent();
+
+// Get counts for each collection
+$collections = [];
+foreach ($itemSets as $itemSet) {
+    // Get item count for this collection
+    $itemCount = $api->search('items', [
+        'item_set_id' => $itemSet->id(),
+        'limit' => 0
+    ])->getTotalResults();
+    
+    $collections[] = [
+        'id' => $itemSet->id(),
+        'title' => $itemSet->displayTitle(),
+        'count' => $itemCount
+    ];
+}
+?>
+
+<div class="collection-filter">
+    <h4><?php echo $translate('COLLECTIONS'); ?></h4>
+    
+    <form id="collection-form" method="get">
+        <div class="collection-list">
+            <?php foreach ($collections as $collection): ?>
+                <label class="collection-item">
+                    <input type="checkbox" 
+                           name="collection[]"
+                           value="<?php echo $collection['id']; ?>"
+                           <?php echo in_array($collection['id'], $selectedCollections) ? 'checked' : ''; ?>>
+                    <span class="collection-label">
+                        <?php echo $this->escapeHtml($collection['title']); ?>
+                        <?php if ($collection['count'] > 0): ?>
+                            <span class="collection-count"></span>
+                        <?php else: ?>
+                            <span class="collection-status"></span>
+                        <?php endif; ?>
+                    </span> <br>
+                </label>
+            <?php endforeach; ?>
+        </div>
+        
+        <?php 
+        // Preserve existing query parameters
+        foreach ($this->params()->fromQuery() as $key => $value):
+            if ($key != 'collection'):
+                if (is_array($value)):
+                    foreach ($value as $subKey => $subValue):
+                        if (is_array($subValue)):
+                            foreach ($subValue as $nestedKey => $nestedValue):
+                                if (!is_array($nestedValue)):
+        ?>
+        <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>[<?php echo $this->escapeHtml($subKey); ?>][<?php echo $this->escapeHtml($nestedKey); ?>]" value="<?php echo $this->escapeHtml($nestedValue); ?>">
+        <?php
+                                endif;
+                            endforeach;
+                        else:
+        ?>
+        <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>[<?php echo $this->escapeHtml($subKey); ?>]" value="<?php echo $this->escapeHtml($subValue); ?>">
+        <?php
+                        endif;
+                    endforeach;
+                else:
+        ?>
+        <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>" value="<?php echo $this->escapeHtml($value); ?>">
+        <?php
+                endif;
+            endif;
+        endforeach;
+        ?>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-submit on checkbox change
+    document.querySelectorAll('.collection-item input[type="checkbox"]').forEach(function(checkbox) {
+        checkbox.addEventListener('change', function() {
+            document.getElementById('collection-form').submit();
+        });
+    });
+});
+</script>

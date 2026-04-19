@@ -1,35 +1,58 @@
 <?php
 $translate = $this->plugin('translate');
+
+// Get current values from URL if they exist, otherwise use defaults
+$query = $this->params()->fromQuery();
+$currentStartYear = isset($query['date_start']) ? $query['date_start'] : $startYear;
+$currentEndYear = isset($query['date_end']) ? $query['date_end'] : $endYear;
 ?>
 <div class="date-range-filter">
+    <h3><?php echo $translate('Filters'); ?></h4>
     <h4><?php echo $translate('Date Range'); ?></h4>
+    <p class="filter-instructions"><?php echo $translate('Change the slider to your preferred date range.'); ?></p>
     <div id="date-range-slider"></div>
     <div class="date-range-inputs">
         <form id="date-range-form" method="get">
             <div class="date-range-values">
-                <span id="date-start-display"><?php echo $startYear; ?></span>
-                <span><?php echo $translate('to'); ?></span>
-                <span id="date-end-display"><?php echo $endYear; ?></span>
+                <span id="date-start-display"><?php echo $currentStartYear; ?></span>
+                <span id="date-end-display"><?php echo $currentEndYear; ?></span>
             </div>
             
             <?php 
-            // Preserve existing query parameters
+            //Preserve ALL existing query parameters including search terms
             foreach ($this->params()->fromQuery() as $key => $value):
                 if ($key != 'date_start' && $key != 'date_end'):
+                    if (is_array($value)):
+                        // Handle array values (like property[] or complex search arrays)
+                        foreach ($value as $subKey => $subValue):
+                            if (is_array($subValue)):
+                                // Handle nested arrays (like property[0][text] for search terms)
+                                foreach ($subValue as $nestedKey => $nestedValue):
+                                    if (!is_array($nestedValue)):
+            ?>
+                <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>[<?php echo $this->escapeHtml($subKey); ?>][<?php echo $this->escapeHtml($nestedKey); ?>]" value="<?php echo $this->escapeHtml($nestedValue); ?>">
+            <?php
+                                    endif;
+                                endforeach;
+                            else:
+                                // Handle simple arrays with numeric keys
+            ?>
+                <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>[<?php echo $this->escapeHtml($subKey); ?>]" value="<?php echo $this->escapeHtml($subValue); ?>">
+            <?php
+                            endif;
+                        endforeach;
+                    else:
+                        // Handle simple key-value pairs (like fulltext_search, q, state, county)
             ?>
                 <input type="hidden" name="<?php echo $this->escapeHtml($key); ?>" value="<?php echo $this->escapeHtml($value); ?>">
-            <?php 
+            <?php
+                    endif;
                 endif;
             endforeach;
             ?>
             
-            <input type="hidden" id="date-start" name="date_start" value="<?php echo $startYear; ?>">
-            <input type="hidden" id="date-end" name="date_end" value="<?php echo $endYear; ?>">
-            
-            <div class="date-range-buttons">
-                <button type="submit" class="apply-date-range"><?php echo $translate('Apply'); ?></button>
-                <button type="button" class="reset-date-range"><?php echo $translate('Reset'); ?></button>
-            </div>
+            <input type="hidden" id="date-start" name="date_start" value="<?php echo $currentStartYear; ?>">
+            <input type="hidden" id="date-end" name="date_end" value="<?php echo $currentEndYear; ?>">
         </form>
     </div>
 </div>
@@ -39,14 +62,25 @@ $translate = $this->plugin('translate');
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Pass the CURRENT values from URL (not the defaults)
     initDateRangeSlider(
         <?php echo json_encode([
             'minYear' => $minYear,
             'maxYear' => $maxYear,
-            'startYear' => $startYear,
-            'endYear' => $endYear,
-            'autoSubmit' => true,
+            'startYear' => $currentStartYear,  // Use current value from URL
+            'endYear' => $currentEndYear,      // Use current value from URL
+            'autoSubmit' => true,  // Auto-submit when slider changes
         ]); ?>
     );
+    
+    // Auto-submit form when slider changes (if not already handled by initDateRangeSlider)
+    if (typeof window.dateRangeSliderInstance !== 'undefined') {
+        // Listen for slider change events and auto-submit
+        document.getElementById('date-range-slider').addEventListener('change', function() {
+            setTimeout(function() {
+                document.getElementById('date-range-form').submit();
+            }, 500); // Small delay to prevent too many submits
+        });
+    }
 });
 </script>
